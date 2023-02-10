@@ -7,10 +7,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material.Icon
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Surface
+import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,37 +27,111 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.kuronosu.calculator.ui.theme.CalculatorTheme
+import kotlin.math.pow
 
-fun evaluate(exp: String): Double {
-    var num = ""
-    var symbol = '+'
-    var result = 0.0
+val symbols = arrayOf("+", "-", "*", "/", "(", ")", "%", "^")
+val precedence = mapOf("+" to 1, "-" to 1, "*" to 2, "/" to 2, "^" to 3)
 
-    for (i in exp) {
-        if (i in '0'..'9' || i == '.')
-            num += i
-        else {
-            when (symbol) {
-                '+' -> result += num.toDouble()
-                '-' -> result -= num.toDouble()
-                '*' -> result *= num.toDouble()
-                '/' -> result /= num.toDouble()
-                '%' -> result %= num.toDouble()
+fun String.splitKeeping(str: String): List<String> {
+    return this.split(str).flatMap { listOf(it, str) }.dropLast(1).filterNot { it.isEmpty() }
+}
+
+fun String.splitKeeping(vararg strs: String): List<String> {
+    var res = listOf(this)
+    strs.forEach { str ->
+        res = res.flatMap { it.splitKeeping(str) }
+    }
+    return res
+}
+
+fun isOperand(ch: String): Boolean {
+    return !symbols.contains(ch)
+}
+
+fun notGreater(stack: List<String>, i: String): Boolean {
+    return if (precedence.containsKey(i) && stack.last() in precedence.keys) {
+        val a = precedence[i]
+        val b = precedence[stack.last()]
+        a!! <= b!!
+    } else {
+        false
+    }
+}
+
+
+fun createTokens(exp: String): List<String> {
+    val tk = exp.replace(" ", "").splitKeeping("+", "-", "*", "/", "(", ")", "%", "^")
+    return tk.filter { it.isNotEmpty() }
+}
+
+
+fun cal(op2: String, op1: String, i: Char): Double {
+    return when (i) {
+        '*' -> op2.toDouble() * op1.toDouble()
+        '/' -> op2.toDouble() / op1.toDouble()
+        '+' -> op2.toDouble() + op1.toDouble()
+        '-' -> op2.toDouble() - op1.toDouble()
+        '^' -> op2.toDouble().pow(op1.toDouble())
+        '%' -> op2.toDouble() % op1.toDouble()
+        else -> throw IllegalArgumentException("Operador inválido")
+    }
+}
+
+fun infixToPostfix(exp: String): List<String> {
+    val tokens = createTokens(exp)
+    val stack = mutableListOf<String>()
+    val output = mutableListOf<String>()
+    for (token in tokens) {
+        if (isOperand(token)) {
+            output.add(token)
+        } else if (token == "(") {
+            stack.add(token)
+        } else if (token == ")") {
+            while (stack.isNotEmpty() && stack.last() != "(") {
+                output.add(stack.removeLast())
             }
-            num = ""
-            symbol = i
+            if (stack.isNotEmpty() && stack.last() != "(") {
+                return listOf()
+            }
+            if (stack.isNotEmpty()) {
+                stack.removeLast()
+            }
+        } else {
+            while (stack.isNotEmpty() && notGreater(stack, token)) {
+                output.add(stack.removeLast())
+            }
+            stack.add(token)
         }
     }
-
-    //To calculate the divide by 4 ( result/4 ) in this case
-    when (symbol) {
-        '+' -> result += num.toDouble()
-        '-' -> result -= num.toDouble()
-        '*' -> result *= num.toDouble()
-        '/' -> result /= num.toDouble()
-        '%' -> result %= num.toDouble()
+    while (stack.isNotEmpty()) {
+        output.add(stack.removeLast())
     }
-    return result
+    return output
+}
+
+fun evaluatePostfix(expr: List<String>): Double {
+    val items = mutableListOf<Double>()
+    for (i in expr) {
+        if (i[0].toString() !in symbols) {
+            items.add(i.toDouble())
+        } else {
+            val op1 = if (items.isEmpty()) 0.0 else items.removeAt(items.lastIndex)
+            val op2 = if (items.isEmpty()) 0.0 else items.removeAt(items.lastIndex)
+            val result = cal(op2.toString(), op1.toString(), i[0])
+            items.add(result)
+        }
+    }
+    return if (items.isEmpty()) 0.0 else items.removeAt(items.lastIndex)
+}
+
+
+fun evaluate(exp: String): Double {
+    return try {
+        evaluatePostfix(infixToPostfix(exp))
+    } catch (e: Exception) {
+        println(e)
+        0.0
+    }
 }
 
 val MediumGray = Color(0xFF2E2E2E)
@@ -66,7 +144,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var text by remember { mutableStateOf("") }
+            var text by remember { mutableStateOf(evaluate("").toString()) }
             var errorTxt by remember { mutableStateOf("") }
             CalculatorTheme {
                 // A surface container using the 'background' color from the theme
